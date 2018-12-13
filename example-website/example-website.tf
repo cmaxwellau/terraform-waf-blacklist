@@ -1,5 +1,9 @@
 variable "bucket_log_prefix" {default = "example-website-bucket"}
 
+variable "cdn_log_prefix" {default = "website-cdn"}
+
+variable "web_acl_id" {default = ""}
+
 resource "aws_s3_bucket" "website_bucket" {
   bucket_prefix   = "example-website"
 
@@ -100,22 +104,33 @@ resource "aws_cloudfront_distribution" "website_cdn" {
   viewer_certificate {
     cloudfront_default_certificate = true
   }
-  web_acl_id = "${aws_waf_web_acl.waf_acl.id}"
+  web_acl_id = "${var.web_acl_id}"
+}
+
+resource "aws_s3_bucket" "access_log_bucket" {
+  bucket_prefix = "example-website-logs"  
+  acl    = "log-delivery-write"
+  lifecycle_rule {
+      id      = "log"
+      enabled = true
+      expiration {
+        days = 7
+      }
+    }  
 }
 
 data "archive_file" "site_zip" {
   type        = "zip"
-  source_dir = "example-site"
+  source_dir = "example-website-contents"
   output_path = "/tmp/example-site.zip"
 }
 
 resource "null_resource" "publish_site_to_s3" {
-
   triggers {
     trigger_on_filechange = "${data.archive_file.site_zip.output_md5}"
   }  
   provisioner "local-exec" {
-    command = "aws s3 sync example-website/example-website-contents s3://${aws_s3_bucket.website_bucket.id}"
+    command = "aws s3 sync example-website-contents s3://${aws_s3_bucket.website_bucket.id}"
   }
 }
 
@@ -123,6 +138,15 @@ output "website_url" {
   value = "https://${aws_cloudfront_distribution.website_cdn.domain_name}/"
 }
 
-output "website_logs" {
-  value = "s3://${aws_s3_bucket.access_log_bucket.id}/${var.cdn_log_prefix}"
+output "cdn_logs_bucket" {
+  value = "${lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "bucket")}"
 }
+
+output "cdn_logs_prefix" {
+  value = "${lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "prefix")}"
+}
+
+
+
+
+
