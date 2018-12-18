@@ -1,8 +1,13 @@
 variable "bucket_log_prefix" {default = "example-website-bucket"}
-
-variable "cdn_log_prefix" {default = "website-cdn"}
+variable "log_file_prefix" {default = "website-cdn/"}
 
 variable "web_acl_id" {default = ""}
+
+variable "aws_region" {}
+
+provider "aws" {
+  region = "${var.aws_region}"
+}
 
 resource "aws_s3_bucket" "website_bucket" {
   bucket_prefix   = "example-website"
@@ -98,7 +103,7 @@ resource "aws_cloudfront_distribution" "website_cdn" {
   "logging_config" {
     include_cookies = false
     bucket          = "${aws_s3_bucket.access_log_bucket.id}.s3.amazonaws.com"
-    prefix          = "${var.cdn_log_prefix}/"
+    prefix          = "${var.log_file_prefix}"
   }
 
   viewer_certificate {
@@ -138,11 +143,12 @@ output "website_url" {
   value = "https://${aws_cloudfront_distribution.website_cdn.domain_name}/"
 }
 
-output "cdn_logs_bucket" {
-  value = "${lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "bucket")}"
+output "cdn_log_bucket" {
+  value = "${element(split(".", lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "bucket")), 0)}"
+  # value = "${element(split('.', lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "bucket")), 0)}"
 }
 
-output "cdn_logs_prefix" {
+output "cdn_log_prefix" {
   value = "${lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "prefix")}"
 }
 

@@ -2,13 +2,12 @@
 variable "config_request_threshold" { default = "50" }
 
 #duration (in seconds) the IP should be blocked for. Default: 4 hours (14400 sec)
-variable " config_waf_block_period" { default = "14400" }
+variable "config_waf_block_period" { default = "14400" }
 
-variable "aws_region" {default = "ap-southeast-1"}
+variable "aws_region" {}
 
-
-variable "cdn_log_bucket"
-variable "cdn_log_prefix" {default = "website-cdn"}
+variable "cdn_log_bucket" {}
+variable "cdn_log_prefix" {}
 
 provider "aws" {
   region = "${var.aws_region}"
@@ -21,7 +20,7 @@ resource "aws_s3_bucket" "ops_bucket" {
   bucket_prefix = "waf-block-ops"
   acl           = "private"
   versioning {
-    enabled = true
+    enabled = true    
   }
 }
 
@@ -38,20 +37,25 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
     lambda_function_arn = "${aws_lambda_function.lambda_function.arn}"
     events              = ["s3:ObjectCreated:*"]
     filter_suffix       = ".gz"
-    filter_prefix       = "${var.cdn_log_prefix}/"    
+    filter_prefix       = "${var.cdn_log_prefix}"    
   }
 }
 
+resource "random_id" "function_name" {
+  prefix = "waf-blocker-"
+  byte_length = 8
+}
+
 resource "aws_lambda_function" "lambda_function" {
-  depends_on  = ["aws_iam_role.lambda_role", "aws_s3_bucket_object.lambda_zip"]
-  function_name    = "block-bad-behiaving-ips" <<<< need randomness
+  depends_on  = ["aws_iam_role.lambda_role"]
+  function_name    = "${random_id.function_name.hex}"
   role             = "${aws_iam_role.lambda_role.arn}"
   handler          = "parser.lambda_handler"
   runtime          = "python2.7"
   memory_size      = "512"
   timeout          = "300"
   filename         = "${data.archive_file.lambda_zip.output_path}"
-  description      = "${var.request_threshold}:${var.waf_block_period}"
+  description      = "Parse cloudfront logs, identify bad actors, and them to a WAF block"
 
   environment {
     variables = {
@@ -207,4 +211,8 @@ resource "aws_iam_role_policy" "lambda_role_policy" {
   ]
 }
 EOF
+}
+
+output "acl_id" {
+  value = "${aws_waf_web_acl.waf_acl.id}"
 }
