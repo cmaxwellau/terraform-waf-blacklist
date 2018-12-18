@@ -150,3 +150,18 @@ Outputs:
 cdn_logs_bucket = example-website-logs-abcd1234
 cdn_logs_prefix = website-cdn/
 ```
+
+# Testing the WAF Blacklist
+A test script is included -*test.py* - that will continually request random URLs from a WAF-enabled website until is gets a HTTP:403 Not Authorised error, and will report the time taken for the block to to be put in place.
+
+```
+$ ./test.py -u https://abcd1234.cloudfront.net/ -c 1000
+
+https://abcd1234.cloudfront.net/czpk5bkweyll: 404
+https://abcd1234.cloudfront.net/45kexlg7lbfv: 404
+https://abcd1234.cloudfront.net/e2t20flrm3sj: 404
+...
+https://abcd1234.cloudfront.net/7m9gi7h14pe1: 404
+https://abcd1234.cloudfront.net/r2ezucuui3oc: 403
+We were blocked in 204 seconds!
+```
