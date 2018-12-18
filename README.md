@@ -1,14 +1,12 @@
-# Terraform Cloudfront Failover
-This is an example script that demonmstrates how to failover a Cloudfront-based website built with terraform, to a specific S3 bucket for site maintenance purposes.
+# Terraform WAF Blacklist
 
+This portable tool is intended to standup dedicated functionality for processing CloudFront access logs, identifying bad actors, and then blacklisting those bad actors by adding them to a WAF blacklist, and then attaching that WAF blacklist to the CloudFront distribution.
 
+There are 2 ways to use this tooling:
+* Extend single existing web application
+* Extend multiple existing web applications
 
-# Install / Setup
-## Install cli dependencies
-* aws cli
-* jq
-
-## Configure AWS credentials in your environment
+##Configure AWS credentials in your environment for terraform
 You can set a default region in the CLI environment. This can still be overriden by an explicit command line option.
 
 ```
@@ -28,22 +26,127 @@ $ export AWS_ACCESS_KEY_ID=AKIA12345678ABCDEAFGH
 $ export AWS_SECRET_ACCESS_KEY=12345678ABCDEFGHabcdefgh12345678abcdefgh
 ```
 
-## Deploy S3 websites
-The example main and failover S3 websites are included and can be provisioned with 
+# Example Web Application
+A working example site is included with this code in the *example-wesite* folder
+
+## Set *aws_region* in vars file
 ```
-terraform init
-terraform apply
+$ vim terraform.tfvars.tf
+aws_region = "ap-southeast-2"
 ```
 
-# Usage
-## Failover using terraform test environment
-The script can identify resources built by terraform using the terraform state file
+## Deploy example website
+```
+$ terraform init
+$ terraform apply...
+Outputs:
+
+cdn_log_bucket = example-website-logs-abcd1234
+cdn_log_prefix = website-cdn/
+```
+
+# (Single application) Modifying your existing Web Application terrform template
+Make the following changes to ensure that your existing template can both producte the needed outputs for the WAF Blacklist functionality, and can accept an optional WAF Web ACL id which will be generated later.
+
+Add variable with a default empty value:
+```
+variable "web_acl_id" {default = ""}
+```
+
+Add a new web_acl_id parameter to CloudFront distribution:
+```
+resource "aws_cloudfront_distribution" "website_cdn" {
+  ...
+  web_acl_id = "${var.web_acl_id}"
+}
+```
+
+Add exports for cloudfront distribution logging configuration:
+```
+output "cdn_log_bucket" {
+  value = "${lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "bucket")}"
+}
+
+output "cdn_log_prefix" {
+  value = "${lookup(aws_cloudfront_distribution.website_cdn.logging_config[0], "prefix")}"
+}
+```
+
+## Update Web Application resources.
+Update the web application with terraform to get new output values. Record the output values for *cdn_logs_bucket* and *cdn_logs_prefix* as you will use them as inputs to the next step:
+```
+$ terraform update
+...
+Outputs:
+
+cdn_log_bucket = example-website-logs-abcd1234
+cdn_log_prefix = website-cdn/
+```
+
+# (Multiple applications) Modifying your existing Web Application terrform template
+You can have a single set of WAF blacklist functionality shared across multiple CloudFront enabled applications by making the following changes:
+* Create a single dedicated S3 bucket for all of your application logs.
+* Add web-acl-id parameter extension as above.
+* Make sure each CloudFront distribution is configure to use this S3 bucket.
+* Make sure each CloudFront distribution shared a common prefix for log files. 
+
+Application 1:
+```
+resource "aws_cloudfront_distribution" "website_cdn" {
+  ...
+  "logging_config" {
+    include_cookies = false
+    bucket          = "my-common-logging-bucket.s3.amazonaws.com"
+    prefix          = "all-cdn-logs/application1"
+  }
+  ...
+}
+```
+
+Application 2:
+```
+resource "aws_cloudfront_distribution" "website_cdn" {
+  ...
+  "logging_config" {
+    include_cookies = false
+    bucket          = "my-common-logging-bucket.s3.amazonaws.com"
+    prefix          = "all-cdn-logs/application2"
+  }
+  ...
+}
+```
+
+In this use case, the variables for the WAF blacklist implementation would be *my-common-logging-bucket* and *all-cdn-logs/*
+
+
+# Stand up WAF blacklist resources
+The WAF Blacklist resources are contained in the *waf-blacklist* directory.
+
+Set *aws_region*, *cdn_log_bucket*, and *cdn_log_prefix* variables in the terraform vars file. The bucket and prefix variables are output from a terrform template that has been modified as per above.
+```
+$ vim terraform.tfvars.tf
+aws_region = "ap-southeast-2"
+cdn_log_bucket = "example-website-logs-abcd1234"
+cdn_log_prefix = "website-cdn/"
+```
+
+Create the WAF Blasklist resources using terraform, and take note ofthe output variable for *acl_id*
+```
+$ terraform init
+$ terraform apply --var cdn_log_bucket=example-website-logs-abcd1234 --var cdn_log_prefix=website-cdn/
+Outputs:
+
+acl_id = 01234567-5678-abcd-1234-a6cbdf0a010d
+```
+
+## Update Web Application(s) to apply WAF Blacklist Web ACL.
+You can apply the newly created Web ACL to one, or multiple, CloudFront Web Application that have been modified to accept a web-acli-id parameter as shown above. This variable can be supplied directly on the command line, or spcified in a *terraform.tfvars.tf* file.
 
 ```
-failover.sh -f terraform.tfstate
-```
+$ terraform apply -var web_acl_id=01234567-5678-abcd-1234-a6cbdf0a010d
+...
+Outputs:
 
-## Failover with manual settings
-```
-failover.sh -c E1M6O00B4YABCD -u https://d1593sj4rabcde.cloudfront.net/ -i E3OWF71234ABCD -f failover-website20181206082214035709999999.s3.ap-southeast-2.amazonaws.com
+cdn_logs_bucket = example-website-logs-abcd1234
+cdn_logs_prefix = website-cdn/
 ```
